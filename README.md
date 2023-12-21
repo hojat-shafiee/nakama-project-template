@@ -69,19 +69,6 @@ docker-compose down
 
 You can wipe the database and workspace with `docker-compose down -v` to remove the disk volumes.
 
-### Run RPC function
-
-A bunch of RPC IDs are registered with the server logic. A couple of these are:
-
-* "rewards" in Go or as "reward" in Lua.
-* "refreshes" in Go or as "refresh" in Lua.
-
-To execute the RPC function with cURL generated a session token:
-
-```shell
-curl "127.0.0.1:7350/v2/account/authenticate/device" --data "{\"id\": \""$(uuidgen)"\"}" --user 'defaultkey:'
-```
-
 Take the session token in the response and use it to execute the RPC function as the user:
 
 ```shell
