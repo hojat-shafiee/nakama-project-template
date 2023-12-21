@@ -1,8 +1,6 @@
 {
   "files": [
-    "./ai.ts",
     "./main.ts",
-    "./daily_rewards.ts",
     "./messages.ts",
     "./match_handler.ts",
     "./match_rpc.ts"

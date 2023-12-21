@@ -18,8 +18,6 @@ enum OpCode {
 	REJECTED = 5,
  	// Opponent has left the game.
     OPPONENT_LEFT = 6,
-    // Invite AI player to join instead of the opponent who left the game.
-    INVITE_AI = 7,
 }
 
 type BoardPosition = 0|1|2|3|4|5|6|7|8
@@ -71,8 +69,6 @@ interface MoveMessage {
 interface RpcFindMatchRequest {
     // User can choose a fast or normal speed match.
     fast: boolean
-    // User can choose whether to play with AI
-    ai?: boolean
 }
 
 // Payload for an RPC response containing match IDs the user can join.

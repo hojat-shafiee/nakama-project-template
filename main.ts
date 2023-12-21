@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const rpcIdRewards = 'rewards_js';
 const rpcIdFindMatch = 'find_match_js';
 
 function InitModule(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, initializer: nkruntime.Initializer) {
-    initializer.registerRpc(rpcIdRewards, rpcReward);
 
     initializer.registerRpc(rpcIdFindMatch, rpcFindMatch);
 
