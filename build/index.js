@@ -14,150 +14,7 @@ var OpCode;
   OpCode[OpCode["MOVE"] = 4] = "MOVE";
   OpCode[OpCode["REJECTED"] = 5] = "REJECTED";
   OpCode[OpCode["OPPONENT_LEFT"] = 6] = "OPPONENT_LEFT";
-  OpCode[OpCode["INVITE_AI"] = 7] = "INVITE_AI";
 })(OpCode || (OpCode = {}));
-
-function rpcReward(context, logger, nk, payload) {
-  if (!context.userId) {
-    throw Error('No user ID in context');
-  }
-  if (payload) {
-    throw Error('no input allowed');
-  }
-  var objectId = {
-    collection: 'reward',
-    key: 'daily',
-    userId: context.userId
-  };
-  var objects;
-  try {
-    objects = nk.storageRead([objectId]);
-  } catch (error) {
-    logger.error('storageRead error: %s', error);
-    throw error;
-  }
-  var dailyReward = {
-    lastClaimUnix: 0
-  };
-  objects.forEach(function (object) {
-    if (object.key == 'daily') {
-      dailyReward = object.value;
-    }
-  });
-  var resp = {
-    coinsReceived: 0
-  };
-  var d = new Date();
-  d.setHours(0, 0, 0, 0);
-  if (dailyReward.lastClaimUnix < msecToSec(d.getTime())) {
-    resp.coinsReceived = 500;
-    var changeset = {
-      coins: resp.coinsReceived
-    };
-    try {
-      nk.walletUpdate(context.userId, changeset, {}, false);
-    } catch (error) {
-      logger.error('walletUpdate error: %q', error);
-      throw error;
-    }
-    var notification = {
-      code: 1001,
-      content: changeset,
-      persistent: true,
-      subject: "You've received your daily reward!",
-      userId: context.userId
-    };
-    try {
-      nk.notificationsSend([notification]);
-    } catch (error) {
-      logger.error('notificationsSend error: %q', error);
-      throw error;
-    }
-    dailyReward.lastClaimUnix = msecToSec(Date.now());
-    var write = {
-      collection: 'reward',
-      key: 'daily',
-      permissionRead: 1,
-      permissionWrite: 0,
-      value: dailyReward,
-      userId: context.userId
-    };
-    if (objects.length > 0) {
-      write.version = objects[0].version;
-    }
-    try {
-      nk.storageWrite([write]);
-    } catch (error) {
-      logger.error('storageWrite error: %q', error);
-      throw error;
-    }
-  }
-  var result = JSON.stringify(resp);
-  logger.debug('rpcReward resp: %q', result);
-  return result;
-}
-function msecToSec(n) {
-  return Math.floor(n / 1000);
-}
-
-var aiUserId = "ai-user-id";
-var tfServingAddress = "http://tf:8501/v1/models/ttt:predict";
-var aiPresence = {
-  userId: aiUserId,
-  sessionId: "",
-  username: aiUserId,
-  node: ""
-};
-function aiMessage(code, data) {
-  return {
-    sender: aiPresence,
-    persistence: true,
-    status: "",
-    opCode: code,
-    data: data,
-    reliable: true,
-    receiveTimeMs: Date.now()
-  };
-}
-function aiTurn(state, logger, nk) {
-  var aiCell = [1, 0];
-  var playerCell = [0, 1];
-  var undefCell = [0, 0];
-  var b = [[undefCell, undefCell, undefCell], [undefCell, undefCell, undefCell], [undefCell, undefCell, undefCell]];
-  state.board.forEach(function (mark, idx) {
-    var rowIdx = Math.floor(idx / 3);
-    var cellIdx = idx % 3;
-    if (mark === state.marks[aiUserId]) b[rowIdx][cellIdx] = aiCell;else if (mark === null || mark === Mark.UNDEFINED) b[rowIdx][cellIdx] = undefCell;else b[rowIdx][cellIdx] = playerCell;
-  });
-  var headers = {
-    'Accept': 'application/json'
-  };
-  var resp = nk.httpRequest(tfServingAddress, 'post', headers, JSON.stringify({
-    instances: [b]
-  }));
-  var body = JSON.parse(resp.body);
-  var predictions = [];
-  try {
-    predictions = body.predictions[0];
-  } catch (error) {
-    logger.error("received unexpected TF response: %v: %v", error, body);
-    return;
-  }
-  var maxVal = -Infinity;
-  var aiMovePos = -1;
-  predictions.forEach(function (val, idx) {
-    if (val > maxVal) {
-      maxVal = val;
-      aiMovePos = idx;
-    }
-  });
-  if (aiMovePos > -1) {
-    var move = nk.stringToBinary(JSON.stringify({
-      position: aiMovePos
-    }));
-    state.aiMessage = aiMessage(OpCode.MOVE, move);
-  }
-}
 
 var moduleName = "tic-tac-toe_js";
 var tickRate = 5;
@@ -168,7 +25,6 @@ var turnTimeNormalSec = 20;
 var winningPositions = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 var matchInit = function matchInit(ctx, logger, nk, params) {
   var fast = !!params['fast'];
-  var ai = !!params['ai'];
   var label = {
     open: 1,
     fast: 0
@@ -188,13 +44,8 @@ var matchInit = function matchInit(ctx, logger, nk, params) {
     deadlineRemainingTicks: 0,
     winner: null,
     winnerPositions: null,
-    nextGameRemainingTicks: 0,
-    ai: ai,
-    aiMessage: null
+    nextGameRemainingTicks: 0
   };
-  if (ai) {
-    state.presences[aiUserId] = aiPresence;
-  }
   return {
     state: state,
     tickRate: tickRate,
@@ -272,13 +123,10 @@ var matchLeave = function matchLeave(ctx, logger, nk, dispatcher, tick, state, p
   }
   var humanPlayersRemaining = [];
   Object.keys(state.presences).forEach(function (userId) {
-    if (userId !== aiUserId && state.presences[userId] !== null) humanPlayersRemaining.push(state.presences[userId]);
+    if (state.presences[userId] !== null) humanPlayersRemaining.push(state.presences[userId]);
   });
   if (humanPlayersRemaining.length === 1) {
     dispatcher.broadcastMessage(OpCode.OPPONENT_LEFT, null, humanPlayersRemaining, null, true);
-  } else if (state.ai && humanPlayersRemaining.length === 0) {
-    delete state.presences[aiUserId];
-    state.ai = false;
   }
   return {
     state: state
@@ -286,6 +134,7 @@ var matchLeave = function matchLeave(ctx, logger, nk, dispatcher, tick, state, p
 };
 var matchLoop = function matchLoop(ctx, logger, nk, dispatcher, tick, state, messages) {
   var _a;
+  var _b;
   logger.debug('Running match loop. Tick: %d', tick);
   if (connectedPlayers(state) + state.joinsInProgress === 0) {
     state.emptyTicks++;
@@ -323,15 +172,7 @@ var matchLoop = function matchLoop(ctx, logger, nk, dispatcher, tick, state, mes
     var marks_1 = [Mark.X, Mark.O];
     Object.keys(state.presences).forEach(function (userId) {
       var _a;
-      if (state.ai) {
-        if (userId === aiUserId) {
-          state.marks[userId] = Mark.O;
-        } else {
-          state.marks[userId] = Mark.X;
-        }
-      } else {
-        state.marks[userId] = (_a = marks_1.shift()) !== null && _a !== void 0 ? _a : null;
-      }
+      state.marks[userId] = (_a = marks_1.shift()) !== null && _a !== void 0 ? _a : null;
     });
     state.mark = Mark.X;
     state.winner = Mark.UNDEFINED;
@@ -349,20 +190,16 @@ var matchLoop = function matchLoop(ctx, logger, nk, dispatcher, tick, state, mes
       state: state
     };
   }
-  if (state.aiMessage !== null) {
-    messages.push(state.aiMessage);
-    state.aiMessage = null;
-  }
-  var _loop_1 = function _loop_1(message) {
-    var _b;
+  for (var _i = 0, messages_1 = messages; _i < messages_1.length; _i++) {
+    var message = messages_1[_i];
     switch (message.opCode) {
       case OpCode.MOVE:
         logger.debug('Received move message from user: %v', state.marks);
-        var mark = (_a = state.marks[message.sender.userId]) !== null && _a !== void 0 ? _a : null;
-        var sender = message.sender.userId == aiUserId ? null : [message.sender];
+        var mark = (_b = state.marks[message.sender.userId]) !== null && _b !== void 0 ? _b : null;
+        var sender = [message.sender];
         if (mark === null || state.mark !== mark) {
           dispatcher.broadcastMessage(OpCode.REJECTED, null, sender);
-          return "continue";
+          continue;
         }
         var msg = {};
         try {
@@ -370,17 +207,17 @@ var matchLoop = function matchLoop(ctx, logger, nk, dispatcher, tick, state, mes
         } catch (error) {
           dispatcher.broadcastMessage(OpCode.REJECTED, null, sender);
           logger.debug('Bad data received: %v', error);
-          return "continue";
+          continue;
         }
         if (state.board[msg.position]) {
           dispatcher.broadcastMessage(OpCode.REJECTED, null, sender);
-          return "continue";
+          continue;
         }
         state.board[msg.position] = mark;
         state.mark = mark === Mark.O ? Mark.X : Mark.O;
         state.deadlineRemainingTicks = calculateDeadlineTicks(state.label);
-        var winner = (_b = winCheck(state.board, mark), _b[0]),
-          winningPos = _b[1];
+        var winner = (_a = winCheck(state.board, mark), _a[0]),
+          winningPos = _a[1];
         if (winner) {
           state.winner = mark;
           state.winnerPositions = winningPos;
@@ -418,42 +255,10 @@ var matchLoop = function matchLoop(ctx, logger, nk, dispatcher, tick, state, mes
         }
         dispatcher.broadcastMessage(opCode, JSON.stringify(outgoingMsg));
         break;
-      case OpCode.INVITE_AI:
-        if (state.ai) {
-          logger.error('AI player is already playing');
-          return "continue";
-        }
-        var activePlayers_1 = [];
-        Object.keys(state.presences).forEach(function (userId) {
-          var p = state.presences[userId];
-          if (p === null) {
-            delete state.presences[userId];
-          } else {
-            activePlayers_1.push(p);
-          }
-        });
-        logger.debug('active users: %d', activePlayers_1.length);
-        if (activePlayers_1.length != 1) {
-          logger.error('one active player is required to enable AI mode');
-          return "continue";
-        }
-        state.ai = true;
-        state.presences[aiUserId] = aiPresence;
-        if (state.marks[activePlayers_1[0].userId] == Mark.O) {
-          state.marks[aiUserId] = Mark.X;
-        } else {
-          state.marks[aiUserId] = Mark.O;
-        }
-        logger.info('AI player joined match');
-        break;
       default:
         dispatcher.broadcastMessage(OpCode.REJECTED, null, [message.sender]);
         logger.error('Unexpected opcode received: %d', message.opCode);
     }
-  };
-  for (var _i = 0, messages_1 = messages; _i < messages_1.length; _i++) {
-    var message = messages_1[_i];
-    _loop_1(message);
   }
   if (state.playing) {
     state.deadlineRemainingTicks--;
@@ -470,9 +275,6 @@ var matchLoop = function matchLoop(ctx, logger, nk, dispatcher, tick, state, mes
       };
       dispatcher.broadcastMessage(OpCode.DONE, JSON.stringify(msg));
     }
-  }
-  if (state.ai && state.mark === state.marks[aiUserId]) {
-    aiTurn(state, logger, nk);
   }
   return {
     state: state
@@ -514,6 +316,9 @@ function connectedPlayers(s) {
   }
   return count;
 }
+function msecToSec(n) {
+  return Math.floor(n / 1000);
+}
 
 var rpcFindMatch = function rpcFindMatch(ctx, logger, nk, payload) {
   if (!ctx.userId) {
@@ -528,16 +333,6 @@ var rpcFindMatch = function rpcFindMatch(ctx, logger, nk, payload) {
   } catch (error) {
     logger.error('Error parsing json message: %q', error);
     throw error;
-  }
-  if (request.ai) {
-    var matchId = nk.matchCreate(moduleName, {
-      fast: request.fast,
-      ai: true
-    });
-    var res_1 = {
-      matchIds: [matchId]
-    };
-    return JSON.stringify(res_1);
   }
   var matches;
   try {
@@ -568,10 +363,8 @@ var rpcFindMatch = function rpcFindMatch(ctx, logger, nk, payload) {
   return JSON.stringify(res);
 };
 
-var rpcIdRewards = 'rewards_js';
 var rpcIdFindMatch = 'find_match_js';
 function InitModule(ctx, logger, nk, initializer) {
-  initializer.registerRpc(rpcIdRewards, rpcReward);
   initializer.registerRpc(rpcIdFindMatch, rpcFindMatch);
   initializer.registerMatch(moduleName, {
     matchInit: matchInit,

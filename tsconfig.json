@@ -11,7 +11,7 @@
       "rootDirs": ["./node_modules/"]
     },
     "files": [
-        "./main.ts",
+        "src/main.ts",
         "./node_modules/nakama-runtime/index.d.ts"
     ],
     "exclude": [

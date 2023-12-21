@@ -7,7 +7,7 @@ import typescript from '@rollup/plugin-typescript';
 const extensions = ['.mjs', '.js', '.ts', '.json'];
 
 export default {
-  input: './main.ts',
+  input: './src/main.ts',
   external: ['nakama-runtime'],
   plugins: [
     // Compile TS to check types
